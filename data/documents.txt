@@ -1,0 +1,48 @@
+Python powers modern web applications
+Python simplifies data analysis workflows
+Python supports machine learning projects
+Python developers build reliable software
+Python scripts automate repetitive tasks
+Java powers large enterprise applications
+Java supports object oriented programming
+C enables low level systems programming
+C++ builds high performance software
+Rust provides memory safe systems programming
+Search engines retrieve relevant documents
+Search engines use inverted indexes
+Inverted indexes accelerate document retrieval
+Indexes map terms to documents
+Documents contain searchable text
+Search queries contain multiple terms
+Queries retrieve matching documents quickly
+Ranking orders documents by relevance
+Relevance depends on query term frequency
+Frequency measures repeated terms within documents
+TF IDF measures term importance
+BM25 ranks documents using relevance
+Rare terms provide stronger search signals
+Common terms appear across many documents
+Stop words occur frequently in documents
+Tokenization splits text into individual terms
+Normalization converts text into consistent forms
+Stemming reduces related words to roots
+Lemmatization identifies words using linguistic meaning
+Phrase queries require positional indexes
+Boolean queries combine multiple search terms
+AND queries require matching documents
+OR queries allow alternative terms
+NOT queries exclude unwanted documents
+Fuzzy search handles spelling mistakes
+Edit distance measures string differences
+Autocomplete suggests possible search terms
+Tries support efficient prefix searches
+Postings store matching document identifiers
+Postings lists support efficient intersections
+Document frequency counts matching documents
+Term frequency counts occurrences within documents
+Query processing transforms text into operations
+Index persistence saves searchable data
+Benchmarking measures search performance
+Caching reduces repeated query costs
+Compression reduces index storage requirements
+Incremental indexing adds new documents
