@@ -7,9 +7,12 @@ def build_index(documents: list[str]):
         tokens = tokenizer(document)
 
         for token in tokens:
-            if token in index:
-                index[token].append(doc_id)
-            else:
-                index[token] = [doc_id]
+            if token not in index:
+                index[token] = {}
+            
+            if doc_id not in index[token]:
+                index[token][doc_id] = 0
+
+            index[token][doc_id] += 1
 
     return index
