@@ -44,7 +44,7 @@ def test_single_term_index_search():
         "java",
     ]
 
-    index = build_index(documents)
+    index = build_index(documents)["index"]
 
     assert set(single_term_basic_index_search(index, "python")) == {0, 1}
     assert set(single_term_basic_index_search(index, "java")) == {0, 2}
@@ -57,7 +57,7 @@ def test_single_term_index_search_missing_term():
         "java",
     ]
 
-    index = build_index(documents)
+    index = build_index(documents)["index"]
 
     assert single_term_basic_index_search(index, "javascript") == []
 
@@ -70,7 +70,7 @@ def test_and_search():
         "python java rust",
     ]
 
-    index = build_index(documents)
+    index = build_index(documents)["index"]
 
     result = and_index_search(index, ["python", "java"])
 
@@ -85,7 +85,7 @@ def test_and_search_multiple_terms():
         "java rust",
     ]
 
-    index = build_index(documents)
+    index = build_index(documents)["index"]
 
     result = and_index_search(index, ["python", "java", "rust"])
 
@@ -99,7 +99,7 @@ def test_and_search_missing_term():
         "java",
     ]
 
-    index = build_index(documents)
+    index = build_index(documents)["index"]
 
     assert and_index_search(index, ["python", "javascript"]) == []
 
@@ -110,7 +110,7 @@ def test_and_search_empty_query():
         "python rust",
     ]
 
-    index = build_index(documents)
+    index = build_index(documents)["index"]
 
     assert and_index_search(index, []) == []
 
@@ -122,7 +122,7 @@ def test_and_search_duplicate_terms():
         "java",
     ]
 
-    index = build_index(documents)
+    index = build_index(documents)["index"]
 
     result = and_index_search(index, ["python", "python"])
 
@@ -137,7 +137,7 @@ def test_or_search():
         "rust",
     ]
 
-    index = build_index(documents)
+    index = build_index(documents)["index"]
 
     result = or_index_search(index, ["python", "java"])
 
@@ -152,7 +152,7 @@ def test_or_search_multiple_terms():
         "go",
     ]
 
-    index = build_index(documents)
+    index = build_index(documents)["index"]
 
     result = or_index_search(index, ["python", "java", "rust"])
 
@@ -166,7 +166,7 @@ def test_or_search_missing_term():
         "java",
     ]
 
-    index = build_index(documents)
+    index = build_index(documents)["index"]
 
     assert or_index_search(index, ["javascript"]) == []
 
@@ -178,7 +178,7 @@ def test_or_search_mixed_existing_and_missing_terms():
         "java",
     ]
 
-    index = build_index(documents)
+    index = build_index(documents)["index"]
 
     result = or_index_search(index, ["python", "javascript"])
 
@@ -191,7 +191,7 @@ def test_or_search_empty_query():
         "python rust",
     ]
 
-    index = build_index(documents)
+    index = build_index(documents)["index"]
 
     assert or_index_search(index, []) == []
 
@@ -203,7 +203,7 @@ def test_or_search_duplicate_terms():
         "java",
     ]
 
-    index = build_index(documents)
+    index = build_index(documents)["index"]
 
     result = or_index_search(index, ["python", "python"])
 
@@ -219,7 +219,7 @@ def test_index_search_matches_brute_force():
         "go",
     ]
 
-    index = build_index(documents)
+    index = build_index(documents)["index"]
 
     terms = [
         "python",
@@ -239,3 +239,24 @@ def test_index_search_matches_brute_force():
         )
 
         assert index_results == brute_force_results
+
+def test_brute_force_search_empty_query():
+    assert brute_force_search(["python java"], "") == []
+
+
+def test_brute_force_search_uppercase_query():
+    assert brute_force_search(["python java"], "PYTHON") == []
+
+
+def test_brute_force_search_punctuation_query():
+    assert brute_force_search(["python java"], "python!") == []
+
+
+def test_single_term_index_search_uppercase_query():
+    index = build_index(["python java"])["index"]
+    assert single_term_basic_index_search(index, "PYTHON") == []
+
+
+def test_single_term_index_search_punctuation_query():
+    index = build_index(["python java"])["index"]
+    assert single_term_basic_index_search(index, "python!") == []
