@@ -8,7 +8,7 @@ def test_builds_basic_index():
         "java",
     ]
 
-    index = build_index(documents)
+    index = build_index(documents)["index"]
 
     assert index == {
         "python": {
@@ -31,7 +31,7 @@ def test_tracks_term_frequency():
         "python java java",
     ]
 
-    index = build_index(documents)
+    index = build_index(documents)["index"]
 
     assert index["python"] == {
         0: 3,
@@ -52,7 +52,7 @@ def test_handles_empty_documents():
         "java",
     ]
 
-    index = build_index(documents)
+    index = build_index(documents)["index"]
 
     assert index == {
         "python": {
@@ -65,8 +65,12 @@ def test_handles_empty_documents():
 
 
 def test_handles_empty_input():
-    assert build_index([]) == {}
-
+    result = build_index([])
+    assert result["index"] == {}
+    assert result["corpus_stats"]["num_docs"] == 0
+    assert result["corpus_stats"]["doc_freq"] == {}
+    assert result["corpus_stats"]["doc_lengths"] == {}
+    assert result["corpus_stats"]["avg_doc_length"] == 0.0
 
 def test_normalizes_documents_before_indexing():
     documents = [
@@ -74,7 +78,7 @@ def test_normalizes_documents_before_indexing():
         "JAVA java",
     ]
 
-    index = build_index(documents)
+    index = build_index(documents)["index"]
 
     assert index == {
         "python": {
@@ -84,3 +88,26 @@ def test_normalizes_documents_before_indexing():
             1: 2,
         },
     }
+
+def test_tracks_corpus_statistics():
+    documents = [
+        "python java python",
+        "java rust",
+        "python",
+    ]
+
+    result = build_index(documents)
+    stats = result["corpus_stats"]
+
+    assert stats["num_docs"] == 3
+    assert stats["doc_freq"] == {
+        "python": 2,
+        "java": 2,
+        "rust": 1,
+    }
+    assert stats["doc_lengths"] == {
+        0: 3,
+        1: 2,
+        2: 1,
+    }
+    assert stats["avg_doc_length"] == 2.0
