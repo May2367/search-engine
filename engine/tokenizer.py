@@ -21,3 +21,13 @@ def tokenizer(document: str) -> list[str]:
         res.append(temp_str)
 
     return res
+
+
+"""
+Could do something like this as well(helps manage bad punctuation -- "hello,world" becomes "hello", "world" as opposed to "helloworld"):
+
+import re
+
+def tokenizer(document: str) -> list[str]:
+    return re.findall(r"[a-z]+", document.lower())
+"""

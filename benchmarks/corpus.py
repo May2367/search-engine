@@ -103,3 +103,4 @@ def corpus_statistics(documents, benchmark_terms):
         "document_frequency": document_frequency,
         "token_frequency": token_frequency,
     }
+
