@@ -1,5 +1,12 @@
 import argparse
+import importlib.metadata
 import math
+import os
+import platform
+import statistics
+import time
+
+import numpy as np
 
 from .config import BenchmarkConfig, CorpusConfig
 from .corpus import (
@@ -16,10 +23,17 @@ from engine.search import (
     or_index_search,
     single_term_basic_index_search,
 )
+from engine.semantic_search import (
+    _load_model,
+    embed_documents,
+    embed_query,
+    semantic_search,
+)
 from engine.tokenizer import tokenizer
 
 
 def print_results(name: str, results: dict):
+    """Print results from the existing benchmark runner."""
     print(f"\n{name}")
 
     for metric, value in results.items():
@@ -27,6 +41,54 @@ def print_results(name: str, results: dict):
             print(f"  {metric}: {value}")
         else:
             print(f"  {metric}: {value:.4f} ms")
+
+
+def measure_latency(fn, warmups, runs):
+    """Measure repeated per-call latency in milliseconds."""
+    for _ in range(warmups):
+        fn()
+
+    samples = []
+
+    for _ in range(runs):
+        start = time.perf_counter()
+        fn()
+        samples.append((time.perf_counter() - start) * 1000)
+
+    return {
+        "runs": runs,
+        "median_ms": statistics.median(samples),
+        "p95_ms": float(np.percentile(samples, 95)),
+        "min_ms": min(samples),
+        "max_ms": max(samples),
+    }
+
+
+def print_latency_stats(name, results):
+    """Print repeated-run latency statistics."""
+    print(f"  {name}")
+    print(f"    Runs:   {results['runs']}")
+    print(f"    Median: {results['median_ms']:.4f} ms")
+    print(f"    P95:    {results['p95_ms']:.4f} ms")
+    print(f"    Min:    {results['min_ms']:.4f} ms")
+    print(f"    Max:    {results['max_ms']:.4f} ms")
+
+
+def print_environment():
+    """Print relevant hardware and software information."""
+    print("\nBenchmark environment")
+    print(f"  OS: {platform.platform()}")
+    print(f"  Processor: {platform.processor() or 'Not reported'}")
+    print(f"  Logical CPUs: {os.cpu_count()}")
+    print(f"  Python: {platform.python_version()}")
+
+    for package in ("numpy", "sentence-transformers", "torch"):
+        try:
+            version = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError:
+            version = "Not installed"
+
+        print(f"  {package}: {version}")
 
 
 def brute_force_and_search(documents, terms):
@@ -116,7 +178,6 @@ def run_benchmark(
     ]
 
     # Multi-term queries cover common, rare, and overlapping terms.
-    configured_terms = corpus_config.benchmark_terms
     and_or_queries = [
         ["commonfrequency", "mediumfrequency"],
         ["overlapalpha", "overlapbeta"],
@@ -132,7 +193,9 @@ def run_benchmark(
         actual = set(single_term_basic_index_search(index, term))
 
         if expected != actual:
-            raise AssertionError(f"Single-term results differ for {term}")
+            raise AssertionError(
+                f"Single-term results differ for {term}"
+            )
 
     # Verify AND and OR results against independent document scans.
     for terms in and_or_queries:
@@ -206,14 +269,19 @@ def run_benchmark(
         doc_ids = [doc_id for doc_id, _ in results]
 
         if scores != sorted(scores, reverse=True):
-            raise AssertionError(f"BM25 scores are not descending: {query}")
+            raise AssertionError(
+                f"BM25 scores are not descending: {query}"
+            )
 
         if len(doc_ids) != len(set(doc_ids)):
-            raise AssertionError(f"Duplicate BM25 document IDs: {query}")
+            raise AssertionError(
+                f"Duplicate BM25 document IDs: {query}"
+            )
 
         for doc_id, score in results:
             if doc_id not in index_data["corpus_stats"]["doc_lengths"]:
                 raise AssertionError(f"Invalid BM25 document ID: {doc_id}")
+
             if not math.isfinite(score):
                 raise AssertionError(f"Invalid BM25 score: {score}")
 
@@ -227,7 +295,7 @@ def run_benchmark(
         benchmark_config.measured_runs,
     )
 
-    # Print timing results.
+    # Preserve all existing lexical benchmark measurements.
     print_results("Index construction", index_results)
     print_results(
         f"Brute force single-term search ({len(queries)} queries/run)",
@@ -250,9 +318,150 @@ def run_benchmark(
         bm25_results,
     )
 
+    # ---------------------------------------------------------
+    # Semantic search benchmarks
+    # ---------------------------------------------------------
+    print_environment()
+
+    # Measure model initialization separately. Clearing the cache
+    # ensures this measurement includes a fresh model initialization.
+    _load_model.cache_clear()
+
+    start = time.perf_counter()
+    model = _load_model()
+    model_loading_ms = (time.perf_counter() - start) * 1000
+
+    print(f"\nSemantic model loading: {model_loading_ms:.2f} ms")
+
+    # Measure corpus embedding time independently.
+    start = time.perf_counter()
+    semantic_embeddings = embed_documents(documents, model=model)
+    embedding_ms = (time.perf_counter() - start) * 1000
+
+    embedding_bytes = semantic_embeddings.nbytes
+
+    print(f"Document embedding time: {embedding_ms:.2f} ms")
+    print(
+        f"Embedding matrix: {semantic_embeddings.shape}, "
+        f"{embedding_bytes / (1024 ** 2):.2f} MiB"
+    )
+
+    # Use identical natural-language queries for both retrieval methods.
+    semantic_queries = [
+        "common frequency medium frequency",
+        "overlap alpha overlap beta",
+        "rare frequency repeated term",
+        "nonexistent term",
+    ]
+
+    # Encode query vectors outside the vector-only timing.
+    query_vectors = [
+        embed_query(query, model=model)
+        for query in semantic_queries
+    ]
+
+    def run_vector_search(query_vector, k=10):
+        """Exact vector retrieval, excluding model inference."""
+        scores = semantic_embeddings @ query_vector
+        scores = np.clip(scores, -1.0, 1.0)
+
+        doc_ids = np.arange(len(documents))
+        indices = np.lexsort((doc_ids, -scores))[:k]
+
+        return [
+            (int(i), float(scores[i]))
+            for i in indices
+        ]
+
+    # Validate semantic result structure and deterministic ranking.
+    for query in semantic_queries:
+        results = semantic_search(
+            documents,
+            query,
+            k=10,
+            embeddings=semantic_embeddings,
+            model=model,
+        )
+
+        if len(results) > 10:
+            raise AssertionError("Semantic search exceeded k=10")
+
+        doc_ids = [doc_id for doc_id, _ in results]
+
+        if len(doc_ids) != len(set(doc_ids)):
+            raise AssertionError("Duplicate semantic document IDs")
+
+        if any(
+            doc_id < 0 or doc_id >= len(documents)
+            for doc_id in doc_ids
+        ):
+            raise AssertionError("Invalid semantic document ID")
+
+        if any(not math.isfinite(score) for _, score in results):
+            raise AssertionError("Invalid semantic similarity score")
+
+        repeated = semantic_search(
+            documents,
+            query,
+            k=10,
+            embeddings=semantic_embeddings,
+            model=model,
+        )
+
+        if results != repeated:
+            raise AssertionError("Semantic ranking is not deterministic")
+
+    # End-to-end semantic latency includes query embedding.
+    semantic_e2e_results = [
+        measure_latency(
+            lambda query=query: semantic_search(
+                documents,
+                query,
+                k=10,
+                embeddings=semantic_embeddings,
+                model=model,
+            ),
+            benchmark_config.warmup_runs,
+            benchmark_config.measured_runs,
+        )
+        for query in semantic_queries
+    ]
+
+    # Vector-only latency excludes query embedding and document encoding.
+    vector_results = [
+        measure_latency(
+            lambda vector=vector: run_vector_search(vector),
+            benchmark_config.warmup_runs,
+            benchmark_config.measured_runs,
+        )
+        for vector in query_vectors
+    ]
+
+    # BM25 comparison uses exactly the same queries and corpus.
+    bm25_comparison_results = [
+        measure_latency(
+            lambda query=query: bm25_search(index_data, query),
+            benchmark_config.warmup_runs,
+            benchmark_config.measured_runs,
+        )
+        for query in semantic_queries
+    ]
+
+    print("\nSemantic query comparison (per-query latency)")
+
+    for i, query in enumerate(semantic_queries):
+        print(f"\n  Query: {query!r}")
+        print_latency_stats("BM25", bm25_comparison_results[i])
+        print_latency_stats(
+            "Semantic end-to-end",
+            semantic_e2e_results[i],
+        )
+        print_latency_stats("Semantic vector-only", vector_results[i])
+
     print("\nCorrectness: passed.")
 
     return {
+        # Existing results: preserved.
         "index_construction": index_results,
         "brute_force_batch": brute_results,
         "indexed_search_batch": single_results,
@@ -260,6 +469,14 @@ def run_benchmark(
         "or_search_batch": or_results,
         "bm25_ranked_search_batch": bm25_results,
         "corpus_statistics": stats,
+
+        # Additional semantic results.
+        "semantic_model_loading_ms": model_loading_ms,
+        "semantic_document_embedding_ms": embedding_ms,
+        "semantic_embedding_matrix_bytes": embedding_bytes,
+        "semantic_end_to_end": semantic_e2e_results,
+        "semantic_vector_only": vector_results,
+        "bm25_comparison": bm25_comparison_results,
     }
 
 
@@ -293,3 +510,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
