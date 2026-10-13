@@ -1,4 +1,4 @@
-pytest
-rank_bm25
-numpy
-sentence-transformers
+numpy==2.4.6
+sentence-transformers==6.1.0
+rank-bm25==0.2.2
+pytest==9.1.1

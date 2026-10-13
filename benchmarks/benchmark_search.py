@@ -352,12 +352,32 @@ def run_benchmark(
         "overlap alpha overlap beta",
         "rare frequency repeated term",
         "nonexistent term",
+        "common frequency overlap alpha repeated term",
     ]
+
+    # Real controlled-term queries taken from ranked_queries. The
+    # three-term overlap query is left out to keep the set at five.
+    # and_or_queries / ranked_queries themselves are unchanged.
+    controlled_term_queries = [
+        query
+        for query in ranked_queries
+        if query != "overlapalpha overlapbeta overlapgamma"
+    ]
+
+    # All comparison queries: the five natural-language queries followed
+    # by the five controlled-term queries.
+    comparison_queries = semantic_queries + controlled_term_queries
+
+    # BM25 result counts per comparison query (informational only).
+    bm25_result_counts = {
+        query: len(bm25_search(index_data, query))
+        for query in comparison_queries
+    }
 
     # Encode query vectors outside the vector-only timing.
     query_vectors = [
         embed_query(query, model=model)
-        for query in semantic_queries
+        for query in comparison_queries
     ]
 
     def run_vector_search(query_vector, k=10):
@@ -374,7 +394,7 @@ def run_benchmark(
         ]
 
     # Validate semantic result structure and deterministic ranking.
-    for query in semantic_queries:
+    for query in comparison_queries:
         results = semantic_search(
             documents,
             query,
@@ -424,7 +444,7 @@ def run_benchmark(
             benchmark_config.warmup_runs,
             benchmark_config.measured_runs,
         )
-        for query in semantic_queries
+        for query in comparison_queries
     ]
 
     # Vector-only latency excludes query embedding and document encoding.
@@ -437,6 +457,16 @@ def run_benchmark(
         for vector in query_vectors
     ]
 
+    # Query encoding latency, measured on its own.
+    query_encoding_results = [
+        measure_latency(
+            lambda query=query: embed_query(query, model=model),
+            benchmark_config.warmup_runs,
+            benchmark_config.measured_runs,
+        )
+        for query in comparison_queries
+    ]
+
     # BM25 comparison uses exactly the same queries and corpus.
     bm25_comparison_results = [
         measure_latency(
@@ -444,17 +474,22 @@ def run_benchmark(
             benchmark_config.warmup_runs,
             benchmark_config.measured_runs,
         )
-        for query in semantic_queries
+        for query in comparison_queries
     ]
 
     print("\nSemantic query comparison (per-query latency)")
 
-    for i, query in enumerate(semantic_queries):
+    for i, query in enumerate(comparison_queries):
         print(f"\n  Query: {query!r}")
+        print(f"  BM25 results returned: {bm25_result_counts[query]}")
         print_latency_stats("BM25", bm25_comparison_results[i])
         print_latency_stats(
             "Semantic end-to-end",
             semantic_e2e_results[i],
+        )
+        print_latency_stats(
+            "Semantic query encoding only",
+            query_encoding_results[i],
         )
         print_latency_stats("Semantic vector-only", vector_results[i])
 
@@ -476,7 +511,9 @@ def run_benchmark(
         "semantic_embedding_matrix_bytes": embedding_bytes,
         "semantic_end_to_end": semantic_e2e_results,
         "semantic_vector_only": vector_results,
+        "semantic_query_encoding": query_encoding_results,
         "bm25_comparison": bm25_comparison_results,
+        "bm25_result_counts": bm25_result_counts,
     }
 
 
@@ -510,4 +547,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
