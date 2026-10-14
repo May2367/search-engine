@@ -24,6 +24,7 @@ from engine.search import (
     single_term_basic_index_search,
 )
 from engine.semantic_search import (
+    SemanticIndex,
     _load_model,
     embed_documents,
     embed_query,
@@ -346,6 +347,18 @@ def run_benchmark(
         f"{embedding_bytes / (1024 ** 2):.2f} MiB"
     )
 
+    # Build the reusable semantic index once. Validation and
+    # normalization of the embeddings happen here, not per query.
+    start = time.perf_counter()
+    semantic_index = SemanticIndex(
+        documents,
+        embeddings=semantic_embeddings,
+        model=model,
+    )
+    semantic_index_ms = (time.perf_counter() - start) * 1000
+
+    print(f"Semantic index construction: {semantic_index_ms:.2f} ms")
+
     # Use identical natural-language queries for both retrieval methods.
     semantic_queries = [
         "common frequency medium frequency",
@@ -431,6 +444,14 @@ def run_benchmark(
         if results != repeated:
             raise AssertionError("Semantic ranking is not deterministic")
 
+        # The indexed path must return exactly the same results.
+        indexed = semantic_index.search(query, k=10)
+
+        if results != indexed:
+            raise AssertionError(
+                f"Indexed semantic results differ for {query!r}"
+            )
+
     # End-to-end semantic latency includes query embedding.
     semantic_e2e_results = [
         measure_latency(
@@ -441,6 +462,16 @@ def run_benchmark(
                 embeddings=semantic_embeddings,
                 model=model,
             ),
+            benchmark_config.warmup_runs,
+            benchmark_config.measured_runs,
+        )
+        for query in comparison_queries
+    ]
+
+    # End-to-end latency using the prebuilt SemanticIndex.
+    semantic_indexed_results = [
+        measure_latency(
+            lambda query=query: semantic_index.search(query, k=10),
             benchmark_config.warmup_runs,
             benchmark_config.measured_runs,
         )
@@ -488,6 +519,10 @@ def run_benchmark(
             semantic_e2e_results[i],
         )
         print_latency_stats(
+            "Semantic indexed end-to-end",
+            semantic_indexed_results[i],
+        )
+        print_latency_stats(
             "Semantic query encoding only",
             query_encoding_results[i],
         )
@@ -509,7 +544,9 @@ def run_benchmark(
         "semantic_model_loading_ms": model_loading_ms,
         "semantic_document_embedding_ms": embedding_ms,
         "semantic_embedding_matrix_bytes": embedding_bytes,
+        "semantic_index_construction_ms": semantic_index_ms,
         "semantic_end_to_end": semantic_e2e_results,
+        "semantic_indexed_end_to_end": semantic_indexed_results,
         "semantic_vector_only": vector_results,
         "semantic_query_encoding": query_encoding_results,
         "bm25_comparison": bm25_comparison_results,
@@ -547,3 +584,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

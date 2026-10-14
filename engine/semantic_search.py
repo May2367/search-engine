@@ -157,3 +157,83 @@ def semantic_search(documents, query: str, k: int = 10, embeddings: np.ndarray =
         (int(i), float(scores[i]))
         for i in ranked_indices
     ]
+
+
+class SemanticIndex:
+    """
+    Exact cosine-similarity search over a fixed set of documents.
+
+    Validation and normalization of the document embeddings happen once,
+    in the constructor, so each search only encodes the query, scores the
+    documents, and ranks them. Results match semantic_search on valid
+    inputs. Unlike semantic_search, malformed embeddings raise at
+    construction even when a later query would have returned early.
+    """
+
+    def __init__(self, documents, embeddings: np.ndarray = None, model=None):
+        _validate_documents(documents)
+
+        # Copy the references so later changes to the caller's list
+        # cannot misalign document IDs with the embeddings.
+        self._documents = tuple(documents)
+        self._model = model
+        self._doc_ids = np.arange(len(self._documents))
+
+        if not self._documents:
+            self._embeddings = np.empty((0, 0), dtype=np.float32)
+        elif embeddings is None:
+            self._embeddings = embed_documents(self._documents, model=model)
+        else:
+            embeddings = np.asarray(embeddings, dtype=np.float32)
+
+            if embeddings.ndim != 2:
+                raise ValueError("embeddings must be a 2D matrix")
+
+            if embeddings.shape[0] != len(self._documents):
+                raise ValueError("embedding rows must match the number of documents")
+
+            if embeddings.shape[1] == 0:
+                raise ValueError("embedding dimension must be positive")
+
+            if not np.all(np.isfinite(embeddings)):
+                raise ValueError("embeddings must contain only finite values")
+
+            self._embeddings = _normalize_rows(embeddings)
+
+    def __len__(self) -> int:
+        return len(self._documents)
+
+    def search(self, query: str, k: int = 10) -> list[tuple[int, float]]:
+        """Return up to k (doc_id, score) pairs; ties go to the lower doc ID."""
+        if isinstance(k, bool) or not isinstance(k, int):
+            raise ValueError("k must be a non-negative integer")
+
+        if k < 0:
+            raise ValueError("k must be a non-negative integer")
+
+        if not isinstance(query, str):
+            raise TypeError("query must be a string")
+
+        if k == 0 or not self._documents or not query.strip():
+            return []
+
+        query_embedding = embed_query(query, model=self._model)
+
+        if query_embedding.size == 0:
+            return []
+
+        if self._embeddings.shape[1] != query_embedding.shape[0]:
+            raise ValueError("query and document embedding dimensions must match")
+
+        scores = self._embeddings @ query_embedding
+
+        # Guard against tiny floating-point deviations from cosine's range.
+        scores = np.clip(scores, -1.0, 1.0)
+
+        ranked_indices = np.lexsort((self._doc_ids, -scores))[:k]
+
+        return [
+            (int(i), float(scores[i]))
+            for i in ranked_indices
+        ]
+
